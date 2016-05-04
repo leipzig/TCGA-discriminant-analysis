@@ -9,22 +9,24 @@ I am using normalized RNA-Seq gene expression counts from publicly available bre
 The `TCGAbiolinks` Bioconductor package offers a handy mechanisms for getting this data into R dataframes, as well as deciphering sample barcodes.
 
 
-```{r}
+```{r, message=FALSE}
 library(TCGAbiolinks)
 library(MASS)
 library(SummarizedExperiment)
+library(genefu)
+
 
 query<-TCGAquery(tumor="brca",platform = "IlluminaHiSeq_RNASeqV2")
 
 # do this once
-# TCGAdownload(query, path = "brca", type = "rsem.genes.results")
-# TCGAprepare(query,dir="brca",type="rsem.genes.results",save=TRUE,filename="brca.rds")
-
+if(!file.exists("dataNorm.rda")){
+TCGAdownload(query, path = "brca", type = "rsem.genes.results")
+TCGAprepare(query,dir="brca",type="rsem.genes.results",save=TRUE,filename="brca.rds")
 brca<-get(load("brca.rds"))
-
 dataBRCA<-assay(brca,"raw_counts")
-
 dataNorm <- TCGAanalyze_Normalization(tabDF = dataBRCA,geneInfo = geneInfo,method = "geneLength")
+}
+dataNorm<-get(load("dataNorm.rda"))
 
 useData<-dataNorm
 
@@ -39,22 +41,22 @@ tDataSamples$type<-as.vector(sapply(row.names(tDataSamples),function(x){if(x %in
 
 The breast cancer data set has `r nrow(useData)` (genes) and `r ncol(useData)` variables (samples). There are `r length(samplesN)` samples that are "N" (Normal) and `r length(samplesT)` are T (Tumor - either metastatic, primary, recurrent, etc.). These are all from different patients.
 
-We can take a subset of genes useful in classifying breast cancer (PAM50), and then 50 genes chosen at random.
+We can take a subset of genes useful in classifying breast cancer (PAM50).
 
 After a pivot and classifying the samples as tumor or normal, the data frame looks like this:
 
-```{r}
+```{r, message=FALSE}
 pam50genesall<-row.names(pam50$centroids)
 pam50genes<-pam50genesall[pam50genesall %in% colnames(tDataSamples)]
 others <- colnames(tDataSamples)[sample(1:length(colnames(tDataSamples))-1, 50,replace=FALSE)]
 
-pamsub<-tDataSamples[,c(pam50genes,others,"type")]
+pamsub<-tDataSamples[,c(pam50genes,"type")]
 head(pamsub[,(length(colnames(pamsub))-10):length(colnames(pamsub))])
 ```
 
 A linear discriminant analysis (aka Fisher) can be performed with bootstapped leave-one-out predictions.
 
-```{r}
+```{r, message=FALSE}
 fit <- lda(formula = type ~ ., data = pamsub, CV=FALSE)
 
 fitCV <- lda(formula = type ~ ., data = pamsub, CV=TRUE)
@@ -66,19 +68,16 @@ fit
 ### Goodness of Fit
 A confusion matrix - predictions on the left, actuals on the top
 
-```{r}
-ct <- table(pamsub$type, fit$class)
+```{r, message=FALSE}
+ct <- table(pamsub$type, fitCV$class)
 ct
 ```
 
-The total percent correct is `r sum(diag(prop.table(ct)))*100`
+`r round(sum(diag(prop.table(ct)))*100,2)`% of the predictions were correct
 
-A test of proportions is show this is clearly better than expected
-```{r}
+A test of proportions shows this is clearly better than expected
+```{r, message=FALSE}
 prop.test(ct)
 ```
-
-
-
 
 
